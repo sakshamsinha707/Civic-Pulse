@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: civicpulse
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false   # Set this manually in Render dashboard — never commit the key
+    healthCheckPath: /health
+    autoDeploy: true

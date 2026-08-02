@@ -1,0 +1,183 @@
+# CivicPulse — AI-Powered Hyperlocal Issue Tracker
+
+> **ChatGPT Codex India Hackathon 2026 · Theme 8: AI for Societal Good**
+
+CivicPulse lets citizens report local infrastructure problems (potholes, broken streetlights, water leaks) and uses a three-stage AI pipeline to **deduplicate**, **classify**, and **route** each report to the correct municipal department — automatically.
+
+🌐 **Live demo:** _[your Render URL here]_
+
+---
+
+## The Problem
+
+India's municipal complaint portals suffer from:
+- **Duplicate flooding** — the same pothole gets reported 50 times with no consolidation
+- **Manual triage** — human operators read and route thousands of reports daily
+- **Zero feedback** — citizens don't know if their report matters
+
+CivicPulse solves all three.
+
+---
+
+## How It Works
+
+```
+Citizen submits report (text + GPS + optional photo)
+          │
+          ▼
+Stage 1 ── HeuristicContentFilter
+          │  Rejects spam, gibberish, invalid images (stdlib only, <1ms)
+          ▼
+Stage 2 ── SpatialDeduplication
+          │  Haversine geofence (100m radius) + cosine similarity on embeddings
+          │  MERGED  → upvotes the existing issue, returns dedup result
+          │  NEW     → proceeds to Stage 3
+          ▼
+Stage 3 ── GeminiOrchestrator (CivicMind)
+             Gemini 2.0 Flash analyses the cluster and returns:
+             • severity_level (1–5)
+             • department_routed (8 municipal departments)
+             • generated_title
+             • summary_action_plan
+```
+
+---
+
+## Architecture
+
+```
+civicpulse/
+├── api_server.py          # HTTP layer (stdlib http.server, zero frameworks)
+├── content_filter.py      # Stage 1: heuristic spam/gibberish filter
+├── core/
+│   ├── models.py          # Domain models: Issue, Coordinates, IssueStatus
+│   ├── schemas.py         # Pydantic v2 output schema (with stdlib shim fallback)
+│   └── store.py           # InMemoryIssueStore (swap for PostgreSQL in prod)
+├── modules/
+│   ├── spatial_dedup.py   # Stage 2: Haversine + cosine similarity
+│   └── gemini_orchestrator.py  # Stage 3: Gemini API client + prompt engine
+├── index.html             # Single-file SPA (Tailwind CDN, no build step)
+├── Dockerfile             # Production container
+└── render.yaml            # One-click Render deployment
+```
+
+**Zero framework backend** — Python stdlib `http.server` only. Every algorithm (Haversine distance, cosine similarity) is implemented from scratch with no NumPy, making the core logic fully auditable and dependency-free.
+
+---
+
+## Tech Stack
+
+| Layer | Choice | Why |
+|---|---|---|
+| Backend | Python 3.12, stdlib `http.server` | No framework overhead; full control |
+| AI | Gemini 2.0 Flash (`google-generativeai`) | Fast, structured JSON output, cost-efficient |
+| Spatial | Custom Haversine + cosine similarity | No PostGIS needed for demo |
+| Frontend | Single HTML file + Tailwind CDN | Zero build step, instant deploy |
+| Deployment | Docker + Render | Free tier, persistent URL |
+
+---
+
+## Running Locally
+
+```bash
+git clone <repo-url>
+cd civicpulse
+
+# Install the only dependency
+pip install google-generativeai
+
+# Set your Gemini API key (optional — falls back to mock if not set)
+export GEMINI_API_KEY=your_key_here
+
+# Run
+python api_server.py
+# → http://localhost:8080
+```
+
+**Without a Gemini key**, the server runs in mock mode — all pipeline stages work, AI responses return a deterministic stub. Great for testing the full flow locally.
+
+---
+
+## API
+
+### `POST /api/issues`
+Submit a new civic issue.
+
+```json
+{
+  "text": "Large pothole on MG Road near the bus stop, causing accidents",
+  "lat": 12.9716,
+  "lon": 77.5946,
+  "image": "<base64-encoded JPEG, optional>"
+}
+```
+
+**Response (new issue, 201):**
+```json
+{
+  "status": "created",
+  "issue_id": "uuid",
+  "ai_report": {
+    "severity_level": 4,
+    "department_routed": "Public Works",
+    "generated_title": "Dangerous pothole on MG Road near bus stop",
+    "summary_action_plan": "Dispatch road crew within 24 hours..."
+  }
+}
+```
+
+**Response (duplicate detected, 200):**
+```json
+{
+  "status": "merged",
+  "merged_into_id": "existing-uuid",
+  "similarity_score": 0.923,
+  "upvote_count": 3
+}
+```
+
+### `GET /api/issues`
+List all reported issues.
+
+### `GET /health`
+Liveness probe for Render / Cloud Run.
+
+---
+
+## Codex Usage
+
+This project was built using **OpenAI Codex** for:
+
+- **Architecture planning** — Codex outlined the 3-stage pipeline design and module boundaries before any code was written
+- **Algorithm implementation** — Haversine distance and cosine similarity implementations were generated and reviewed by Codex
+- **Prompt engineering** — the `SYSTEM_PROMPT` in `gemini_orchestrator.py` (the CivicMind persona and JSON schema constraints) was iteratively refined with Codex
+- **Schema design** — `AnalyzedIssueReport` with its Pydantic shim was designed with Codex for offline/CI compatibility
+- **Test generation** — `test_spatial_dedup.py` and `test_gemini_orchestrator.py` were generated by Codex covering edge cases including zero-vector inputs, boundary coordinates, and API failure modes
+- **Self-review loops** — Codex was used to review each module for correctness, pointing out the thread-safety caveat on `InMemoryIssueStore` and the need for the stdlib shim in `schemas.py`
+
+---
+
+## Running Tests
+
+```bash
+python -m pytest test_spatial_dedup.py test_gemini_orchestrator.py -v
+```
+
+---
+
+## Deployment (Render)
+
+1. Push this repo to GitHub (public)
+2. Go to [render.com](https://render.com) → New → Web Service → Connect repo
+3. Render auto-detects `render.yaml`
+4. In Environment settings, add `GEMINI_API_KEY` = your key
+5. Deploy — live in ~2 minutes
+
+---
+
+## Impact
+
+- **Citizens** get instant confirmation + dedup feedback instead of a black hole
+- **Municipal staff** receive pre-triaged, severity-ranked, department-routed reports
+- **Duplicate reduction**: cosine similarity + spatial clustering means 1 real problem = 1 work order, not 50
+- **Extensible**: swap `InMemoryIssueStore` for PostgreSQL/PostGIS and `GeminiClient` for any LLM with one line change each

@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CivicPulse — Report a Local Issue</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy:   { DEFAULT: '#0B1120', 800: '#111827', 700: '#1a2540', 600: '#1e2d4d' },
+            amber:  { DEFAULT: '#F59E0B', hot: '#FBBF24', dim: '#92400E' },
+            slate:  { card: '#131C30', border: '#1E2D4D', muted: '#64748B' },
+          },
+          fontFamily: {
+            display: ['Syne', 'sans-serif'],
+            body:    ['Inter', 'sans-serif'],
+            mono:    ['"JetBrains Mono"', 'monospace'],
+          },
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* ── Base ── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background-color: #0B1120;
+      color: #E2E8F0;
+      font-family: 'Inter', sans-serif;
+      min-height: 100dvh;
+    }
+
+    /* ── Scanline texture overlay ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(255,255,255,0.012) 2px,
+        rgba(255,255,255,0.012) 4px
+      );
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Amber glow orb ── */
+    .glow-orb {
+      position: fixed;
+      top: -160px; right: -160px;
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(245,158,11,0.12) 0%, transparent 70%);
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Page content sits above overlays ── */
+    .z-page { position: relative; z-index: 1; }
+
+    /* ── Pipeline stage states ── */
+    .pipeline-stage { transition: opacity 0.25s ease, border-color 0.25s ease; }
+    .pipeline-stage.active { border-color: rgba(245,158,11,0.45) !important; box-shadow: 0 0 0 1px rgba(245,158,11,0.15); }
+    .pipeline-stage.done   { border-color: rgba(74,222,128,0.3) !important; }
+    .pipeline-stage.merged { border-color: rgba(148,163,184,0.3) !important; }
+    .pipeline-stage.failed { border-color: rgba(248,113,113,0.35) !important; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin { animation: spin 0.8s linear infinite; }
+
+    /* ── Input / textarea ── */
+    .field {
+      width: 100%;
+      background: #131C30;
+      border: 1px solid #1E2D4D;
+      border-radius: 8px;
+      color: #E2E8F0;
+      padding: 12px 14px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9375rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      outline: none;
+      resize: vertical;
+    }
+    .field::placeholder { color: #475569; }
+    .field:focus {
+      border-color: #F59E0B;
+      box-shadow: 0 0 0 3px rgba(245,158,11,0.15);
+    }
+
+    /* ── Custom file input ── */
+    .file-zone {
+      border: 1.5px dashed #1E2D4D;
+      border-radius: 8px;
+      background: #131C30;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .file-zone:hover, .file-zone.dragging {
+      border-color: #F59E0B;
+      background: rgba(245,158,11,0.04);
+    }
+    .file-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    }
+
+    /* ── Primary button ── */
+    .btn-primary {
+      background: #F59E0B;
+      color: #0B1120;
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 0.9375rem;
+      padding: 13px 24px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      width: 100%;
+      transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+      letter-spacing: 0.01em;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: #FBBF24;
+      box-shadow: 0 0 20px rgba(245,158,11,0.35);
+    }
+    .btn-primary:active:not(:disabled) { transform: scale(0.985); }
+    .btn-primary:disabled {
+      opacity: 0.5; cursor: not-allowed;
+    }
+
+    /* ── Ghost button (geo) ── */
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid #1E2D4D;
+      color: #94A3B8;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.875rem;
+      padding: 9px 14px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-ghost:hover { border-color: #F59E0B; color: #F59E0B; background: rgba(245,158,11,0.05); }
+    .btn-ghost.got-location { border-color: #10B981; color: #10B981; background: rgba(16,185,129,0.05); }
+
+    /* ── Severity badge ── */
+    .sev-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .sev-1 { background: rgba(16,185,129,0.15); color: #34D399; }
+    .sev-2 { background: rgba(59,130,246,0.15); color: #60A5FA; }
+    .sev-3 { background: rgba(234,179,8,0.15);  color: #FDE047; }
+    .sev-4 { background: rgba(249,115,22,0.15); color: #FB923C; }
+    .sev-5 { background: rgba(239,68,68,0.15);  color: #F87171; }
+
+    /* ── Result card (flip animation) ── */
+    .result-card {
+      background: #131C30;
+      border: 1px solid #1E2D4D;
+      border-radius: 12px;
+      overflow: hidden;
+      animation: slideUp 0.35s cubic-bezier(0.16,1,0.3,1) both;
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Merged upvote card (green tint) ── */
+    .merged-card {
+      border-color: rgba(16,185,129,0.3);
+      background: linear-gradient(135deg, #0d1f18 0%, #131C30 100%);
+    }
+
+    /* ── Error card ── */
+    .error-card {
+      border-color: rgba(239,68,68,0.3);
+      background: linear-gradient(135deg, #1c0f0f 0%, #131C30 100%);
+    }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid rgba(11,17,32,0.3);
+      border-top-color: #0B1120;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Divider ── */
+    .divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, #1E2D4D 30%, #1E2D4D 70%, transparent);
+    }
+
+    /* ── Mono tag (dept / ID) ── */
+    .mono-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #64748B;
+    }
+
+    /* ── Image preview ── */
+    #image-preview {
+      max-height: 160px;
+      border-radius: 6px;
+      object-fit: cover;
+      width: 100%;
+    }
+
+    /* ── Reduce motion ── */
+    @media (prefers-reduced-motion: reduce) {
+      .result-card { animation: none; }
+      .spinner { animation: none; }
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0B1120; }
+    ::-webkit-scrollbar-thumb { background: #1E2D4D; border-radius: 3px; }
+  </style>
+</head>
+
+<body>
+  <div class="glow-orb"></div>
+
+  <div class="z-page min-h-dvh flex flex-col">
+
+    <!-- ── Header ─────────────────────────────────────────────────── -->
+    <header class="border-b border-slate-800 px-5 py-4">
+      <div class="max-w-lg mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <!-- Pulse logo mark -->
+          <div class="relative w-8 h-8 flex items-center justify-center">
+            <span class="absolute inline-flex w-full h-full rounded-full bg-amber-500 opacity-20 animate-ping" style="animation-duration:2.5s"></span>
+            <span class="relative w-4 h-4 rounded-full bg-amber-500"></span>
+          </div>
+          <span class="font-display font-800 text-lg tracking-tight text-white">CivicPulse</span>
+        </div>
+        <span class="mono-tag">Issue Tracker v1</span>
+      </div>
+    </header>
+
+    <!-- ── Main ───────────────────────────────────────────────────── -->
+    <main class="flex-1 px-5 py-8">
+      <div class="max-w-lg mx-auto space-y-8">
+
+        <!-- Page headline -->
+        <div>
+          <h1 class="font-display font-800 text-3xl text-white leading-tight mb-1">
+            Report an issue<br/>
+            <span class="text-amber-500">in your area.</span>
+          </h1>
+          <p class="text-slate-400 text-sm leading-relaxed mt-2">
+            Describe what you see, pin your location, and our AI will route it to the right city department within seconds.
+          </p>
+        </div>
+
+        <!-- ── Form ── -->
+        <form id="issue-form" novalidate class="space-y-5">
+
+          <!-- Description -->
+          <div>
+            <label for="description" class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              What's the issue? <span class="text-amber-500">*</span>
+            </label>
+            <textarea
+              id="description"
+              name="description"
+              class="field"
+              rows="4"
+              placeholder="e.g. Large pothole on the main road near the school gate — vehicles are swerving to avoid it."
+              maxlength="1000"
+              required
+            ></textarea>
+            <div class="flex justify-between mt-1.5">
+              <span id="desc-error" class="text-xs text-red-400 hidden"></span>
+              <span id="char-count" class="text-xs text-slate-600 ml-auto font-mono">0 / 1000</span>
+            </div>
+          </div>
+
+          <!-- Location -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              Your Location <span class="text-amber-500">*</span>
+            </label>
+            <div class="flex items-center gap-3">
+              <button type="button" id="geo-btn" class="btn-ghost flex-shrink-0">
+                <svg id="geo-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>
+                </svg>
+                <span id="geo-label">Pin location</span>
+              </button>
+              <div id="coords-display" class="font-mono text-xs text-slate-500 truncate hidden">
+                — — —
+              </div>
+            </div>
+            <p id="geo-error" class="text-xs text-red-400 mt-1.5 hidden"></p>
+          </div>
+
+          <!-- Image upload -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              Photo <span class="text-slate-600">(optional · JPEG or PNG)</span>
+            </label>
+            <div id="file-zone" class="file-zone relative p-5 flex flex-col items-center gap-2 text-center">
+              <input type="file" id="image-input" accept="image/jpeg,image/png" />
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>
+              </svg>
+              <p class="text-sm text-slate-500">Drop an image here or <span class="text-amber-500 font-medium">browse</span></p>
+              <p id="file-name" class="text-xs text-slate-600 mt-0.5"></p>
+            </div>
+            <!-- Image preview (hidden until file selected) -->
+            <div id="preview-wrap" class="mt-2 hidden">
+              <img id="image-preview" src="" alt="Preview" />
+              <button type="button" id="clear-image" class="mt-1.5 text-xs text-slate-500 hover:text-red-400 transition-colors">
+                ✕ Remove image
+              </button>
+            </div>
+          </div>
+
+          <!-- Hidden fields -->
+          <input type="hidden" id="lat-input" />
+          <input type="hidden" id="lon-input" />
+
+          <!-- Submit -->
+          <button type="submit" id="submit-btn" class="btn-primary flex items-center justify-center gap-2.5 mt-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>
+            </svg>
+            Submit Report
+          </button>
+
+        </form>
+
+        <!-- ── Agent Pipeline Visualizer ── -->
+        <div id="pipeline" class="hidden mt-5 space-y-2">
+          <p class="text-xs text-slate-500 font-mono uppercase tracking-widest mb-3">Agent Pipeline</p>
+
+          <div id="stage-1" class="pipeline-stage result-card px-4 py-3 flex items-center gap-3">
+            <div class="stage-icon w-7 h-7 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0">
+              <svg class="icon-default w-3.5 h-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <svg class="icon-spin hidden w-3.5 h-3.5 text-amber-400 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="31.4" stroke-dashoffset="10"/></svg>
+              <svg class="icon-ok hidden w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+              <svg class="icon-err hidden w-3.5 h-3.5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M6 18L18 6M6 6l12 12"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-semibold text-slate-300">Content Filter Agent</div>
+              <div class="stage-msg text-xs text-slate-600 font-mono mt-0.5">Waiting…</div>
+            </div>
+            <span class="stage-badge mono-tag hidden"></span>
+          </div>
+
+          <div id="stage-2" class="pipeline-stage result-card px-4 py-3 flex items-center gap-3 opacity-40">
+            <div class="stage-icon w-7 h-7 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0">
+              <svg class="icon-default w-3.5 h-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <svg class="icon-spin hidden w-3.5 h-3.5 text-amber-400 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="31.4" stroke-dashoffset="10"/></svg>
+              <svg class="icon-ok hidden w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+              <svg class="icon-warn hidden w-3.5 h-3.5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-semibold text-slate-300">Spatial Dedup Agent</div>
+              <div class="stage-msg text-xs text-slate-600 font-mono mt-0.5">Waiting…</div>
+            </div>
+            <span class="stage-badge mono-tag hidden"></span>
+          </div>
+
+          <div id="stage-3" class="pipeline-stage result-card px-4 py-3 flex items-center gap-3 opacity-40">
+            <div class="stage-icon w-7 h-7 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0">
+              <svg class="icon-default w-3.5 h-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+              <svg class="icon-spin hidden w-3.5 h-3.5 text-amber-400 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="31.4" stroke-dashoffset="10"/></svg>
+              <svg class="icon-ok hidden w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+              <svg class="icon-err hidden w-3.5 h-3.5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M6 18L18 6M6 6l12 12"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-semibold text-slate-300">CivicMind AI Agent</div>
+              <div class="stage-msg text-xs text-slate-600 font-mono mt-0.5">Waiting…</div>
+            </div>
+            <span class="stage-badge mono-tag hidden"></span>
+          </div>
+        </div>
+
+        <!-- ── Result area ── -->
+        <div id="result-area"></div>
+
+      </div>
+
+      <!-- ── Live Issues Feed ──────────────────────────────────────── -->
+      <section class="max-w-lg mx-auto w-full px-5 pb-10 mt-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest font-mono">Live Issues Feed</h2>
+          <button id="refresh-btn" class="mono-tag hover:border-amber-500 hover:text-amber-400 transition-colors cursor-pointer">↻ Refresh</button>
+        </div>
+        <div id="issues-feed" class="space-y-2">
+          <p class="text-xs text-slate-600 font-mono">Loading issues…</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- ── Footer ─────────────────────────────────────────────────── -->
+    <footer class="border-t border-slate-800 px-5 py-4 text-center">
+      <p class="mono-tag">AI-powered civic infrastructure triage · CivicPulse</p>
+    </footer>
+
+  </div>
+
+  <!-- ── JavaScript ─────────────────────────────────────────────── -->
+  <script>
+  (() => {
+    'use strict';
+
+    /* ── DOM refs ─────────────────────────────────────────────────── */
+    const form        = document.getElementById('issue-form');
+    const descEl      = document.getElementById('description');
+    const charCount   = document.getElementById('char-count');
+    const descError   = document.getElementById('desc-error');
+    const geoBtn      = document.getElementById('geo-btn');
+    const geoLabel    = document.getElementById('geo-label');
+    const geoError    = document.getElementById('geo-error');
+    const coordsDisp  = document.getElementById('coords-display');
+    const latInput    = document.getElementById('lat-input');
+    const lonInput    = document.getElementById('lon-input');
+    const fileZone    = document.getElementById('file-zone');
+    const fileInput   = document.getElementById('image-input');
+    const fileName    = document.getElementById('file-name');
+    const previewWrap = document.getElementById('preview-wrap');
+    const previewImg  = document.getElementById('image-preview');
+    const clearImgBtn = document.getElementById('clear-image');
+    const submitBtn   = document.getElementById('submit-btn');
+    const resultArea  = document.getElementById('result-area');
+
+    /* ── State ───────────────────────────────────────────────────── */
+    let lat = null, lon = null;
+    let imageBase64 = null;
+
+    /* ── Character counter ──────────────────────────────────────── */
+    descEl.addEventListener('input', () => {
+      const len = descEl.value.length;
+      charCount.textContent = `${len} / 1000`;
+      charCount.className = len > 900
+        ? 'text-xs text-amber-500 ml-auto font-mono'
+        : 'text-xs text-slate-600 ml-auto font-mono';
+    });
+
+    /* ── Geolocation ─────────────────────────────────────────────── */
+    geoBtn.addEventListener('click', () => {
+      if (!navigator.geolocation) {
+        showGeoError('Geolocation is not supported by your browser.');
+        return;
+      }
+      geoLabel.textContent = 'Locating…';
+      geoBtn.disabled = true;
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          lat = pos.coords.latitude;
+          lon = pos.coords.longitude;
+          latInput.value = lat;
+          lonInput.value = lon;
+
+          geoLabel.textContent = 'Location pinned';
+          geoBtn.classList.add('got-location');
+          geoBtn.disabled = false;
+          geoError.classList.add('hidden');
+
+          const fLat = lat.toFixed(5);
+          const fLon = lon.toFixed(5);
+          coordsDisp.textContent = `${fLat}°N  ${fLon > 0 ? fLon + '°E' : Math.abs(fLon) + '°W'}`;
+          coordsDisp.classList.remove('hidden');
+        },
+        (err) => {
+          geoBtn.disabled = false;
+          geoLabel.textContent = 'Pin location';
+          const msgs = {
+            1: 'Location access denied. Please allow it in your browser settings.',
+            2: 'Position unavailable. Try again outdoors.',
+            3: 'Location request timed out. Please try again.',
+          };
+          showGeoError(msgs[err.code] || 'Could not get your location.');
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+
+    function showGeoError(msg) {
+      geoError.textContent = msg;
+      geoError.classList.remove('hidden');
+    }
+
+    /* ── Image handling ──────────────────────────────────────────── */
+    function handleFile(file) {
+      if (!file) return;
+      if (!['image/jpeg', 'image/png'].includes(file.type)) {
+        fileName.textContent = '✕ Only JPEG and PNG files are accepted.';
+        fileName.style.color = '#F87171';
+        return;
+      }
+
+      fileName.textContent = file.name;
+      fileName.style.color = '';
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        // Strip the data URI prefix to get raw base64
+        imageBase64 = dataUrl.split(',')[1];
+        previewImg.src = dataUrl;
+        previewWrap.classList.remove('hidden');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+    clearImgBtn.addEventListener('click', () => {
+      imageBase64 = null;
+      fileInput.value = '';
+      previewWrap.classList.add('hidden');
+      previewImg.src = '';
+      fileName.textContent = '';
+    });
+
+    // Drag-and-drop
+    ['dragover', 'dragenter'].forEach(evt =>
+      fileZone.addEventListener(evt, (e) => { e.preventDefault(); fileZone.classList.add('dragging'); })
+    );
+    ['dragleave', 'drop'].forEach(evt =>
+      fileZone.addEventListener(evt, () => fileZone.classList.remove('dragging'))
+    );
+    fileZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer?.files[0];
+      if (file) { fileInput.files = e.dataTransfer.files; handleFile(file); }
+    });
+
+    /* ── Form validation (client-side) ─────────────────────────── */
+    function validate() {
+      let ok = true;
+
+      const text = descEl.value.trim();
+      if (text.length < 10) {
+        descError.textContent = 'Description must be at least 10 characters.';
+        descError.classList.remove('hidden');
+        ok = false;
+      } else {
+        descError.classList.add('hidden');
+      }
+
+      if (lat === null || lon === null) {
+        showGeoError('Please pin your location before submitting.');
+        ok = false;
+      } else {
+        geoError.classList.add('hidden');
+      }
+
+      return ok;
+    }
+
+    /* ── Loading state ──────────────────────────────────────────── */
+    function setLoading(on) {
+      submitBtn.disabled = on;
+      submitBtn.innerHTML = on
+        ? `<span class="spinner"></span> Analysing report…`
+        : `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> Submit Report`;
+    }
+
+    /* ── Severity helpers ────────────────────────────────────────── */
+    const SEV_LABELS = ['', 'Cosmetic', 'Minor', 'Moderate', 'Significant Hazard', 'Emergency'];
+    const SEV_ICONS  = ['', '●', '●', '●', '▲', '🔴'];
+
+    function sevBadge(n) {
+      return `<span class="sev-badge sev-${n}">${SEV_ICONS[n]} SEV-${n} · ${SEV_LABELS[n]}</span>`;
+    }
+
+    /* ── Render: new issue created ──────────────────────────────── */
+    function renderCreated(data) {
+      const r = data.ai_report;
+      const shortId = data.issue_id ? data.issue_id.slice(0, 8).toUpperCase() : '????????';
+
+      resultArea.innerHTML = `
+        <div class="result-card p-0">
+          <!-- Card header -->
+          <div class="px-5 pt-5 pb-4 border-b border-slate-800 flex items-start justify-between gap-3">
+            <div>
+              <div class="mono-tag mb-1.5">Issue created · #${shortId}</div>
+              <h2 class="text-white font-semibold text-base leading-snug">${escHtml(r?.generated_title ?? 'Issue Reported')}</h2>
+            </div>
+            <div class="flex-shrink-0 mt-0.5">
+              ${r ? sevBadge(r.severity_level) : ''}
+            </div>
+          </div>
+
+          <!-- Department routing -->
+          ${r ? `
+          <div class="px-5 py-3.5 border-b border-slate-800 flex items-center gap-3">
+            <div>
+              <div class="mono-tag mb-0.5">Routed to</div>
+              <div class="text-amber-400 font-semibold text-sm">${escHtml(r.department_routed)}</div>
+            </div>
+          </div>` : ''}
+
+          <!-- Action plan -->
+          ${r ? `
+          <div class="px-5 py-4">
+            <div class="mono-tag mb-2">Action Plan</div>
+            <p class="text-slate-300 text-sm leading-relaxed whitespace-pre-line">${escHtml(r.summary_action_plan)}</p>
+          </div>` : ''}
+
+          ${!r && data.ai_error ? `
+          <div class="px-5 py-4">
+            <p class="text-slate-400 text-sm">Issue saved, but AI analysis is temporarily unavailable.</p>
+            <p class="text-slate-600 font-mono text-xs mt-1">${escHtml(data.ai_error)}</p>
+          </div>` : ''}
+
+          <!-- Footer -->
+          <div class="px-5 py-3 bg-navy-800/50 rounded-b-xl border-t border-slate-800">
+            <p class="text-xs text-slate-600 font-mono">ID: ${data.issue_id ?? '—'}</p>
+          </div>
+        </div>
+      `;
+    }
+
+    /* ── Render: duplicate merged ───────────────────────────────── */
+    function renderMerged(data) {
+      const shortId = (data.merged_into_id ?? '').slice(0, 8).toUpperCase();
+      resultArea.innerHTML = `
+        <div class="result-card merged-card p-5 space-y-3">
+          <div class="flex items-center gap-2.5">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/>
+            </svg>
+            <span class="text-emerald-400 font-semibold text-sm">Duplicate detected — your report has been counted.</span>
+          </div>
+          <div class="divider"></div>
+          <div class="space-y-1.5">
+            <div class="flex justify-between text-sm">
+              <span class="text-slate-400">Matched issue</span>
+              <span class="font-mono text-xs text-slate-300">#${shortId}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span class="text-slate-400">Similarity score</span>
+              <span class="font-mono text-xs text-slate-300">${(data.similarity_score * 100).toFixed(1)}%</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span class="text-slate-400">Total upvotes</span>
+              <span class="font-semibold text-amber-400">${data.upvote_count ?? '—'}</span>
+            </div>
+          </div>
+          <p class="text-xs text-slate-600">This confirms the issue is already being tracked. Higher upvote counts move it up the priority queue.</p>
+        </div>
+      `;
+    }
+
+    /* ── Render: error ──────────────────────────────────────────── */
+    function renderError(code, detail) {
+      const friendlyMessages = {
+        CONTENT_FILTER_REJECTED: 'Your report was flagged by our content filter.',
+        TEXT_TOO_SHORT:          'Description is too short — add more detail.',
+        CHARACTER_SPAM_DETECTED: 'Repeated characters detected. Please write a real description.',
+        LOW_WORD_DIVERSITY_SPAM: 'Description appears to be spam. Please describe the issue clearly.',
+        EMPTY_TEXT_DESCRIPTION:  'Description cannot be empty.',
+        MISSING_FIELDS:          'Missing required fields. Please fill in all required details.',
+        INVALID_COORDINATES:     'Invalid coordinates. Please re-pin your location.',
+        INVALID_IMAGE_FORMAT:    'Unsupported image format. Please upload a JPEG or PNG.',
+        IMAGE_PAYLOAD_TOO_SMALL: 'Image file is too small. Please upload a valid photo.',
+        INVALID_IMAGE_ENCODING:  'Image could not be processed. Please try a different file.',
+        INTERNAL_SERVER_ERROR:   'Something went wrong on our end. Please try again in a moment.',
+      };
+
+      // Extract the specific sub-code from the detail string if present
+      const subCode = detail?.split(': ').pop()?.trim();
+      const msg = friendlyMessages[subCode] || friendlyMessages[code] || detail || 'Something went wrong.';
+
+      resultArea.innerHTML = `
+        <div class="result-card error-card p-5 space-y-2.5">
+          <div class="flex items-center gap-2.5">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span class="text-red-400 font-semibold text-sm">Report not submitted</span>
+          </div>
+          <p class="text-slate-300 text-sm">${escHtml(msg)}</p>
+          <p class="font-mono text-xs text-slate-600">${escHtml(code)}</p>
+        </div>
+      `;
+    }
+
+    /* ── Escape HTML ─────────────────────────────────────────────── */
+    function escHtml(str) {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    /* ── Pipeline Visualizer ────────────────────────────────────── */
+    const pipeline = document.getElementById('pipeline');
+
+    function stageSet(n, state, msg, badge) {
+      const el   = document.getElementById('stage-' + n);
+      const msgEl = el.querySelector('.stage-msg');
+      const badgeEl = el.querySelector('.stage-badge');
+
+      // icons
+      el.querySelector('.icon-default').classList.add('hidden');
+      el.querySelector('.icon-spin').classList.add('hidden');
+      el.querySelector('.icon-ok').classList.add('hidden');
+      const errIcon  = el.querySelector('.icon-err');
+      const warnIcon = el.querySelector('.icon-warn');
+      if (errIcon)  errIcon.classList.add('hidden');
+      if (warnIcon) warnIcon.classList.add('hidden');
+
+      // remove all state classes
+      el.classList.remove('active', 'done', 'merged', 'failed', 'opacity-40');
+
+      if (state === 'idle') {
+        el.querySelector('.icon-default').classList.remove('hidden');
+        el.classList.add('opacity-40');
+      } else if (state === 'running') {
+        el.querySelector('.icon-spin').classList.remove('hidden');
+        el.classList.add('active');
+      } else if (state === 'ok') {
+        el.querySelector('.icon-ok').classList.remove('hidden');
+        el.classList.add('done');
+      } else if (state === 'merged') {
+        if (warnIcon) warnIcon.classList.remove('hidden');
+        else el.querySelector('.icon-ok').classList.remove('hidden');
+        el.classList.add('merged');
+      } else if (state === 'fail') {
+        if (errIcon) errIcon.classList.remove('hidden');
+        el.classList.add('failed');
+      }
+
+      if (msg)   msgEl.textContent = msg;
+      if (badge) { badgeEl.textContent = badge; badgeEl.classList.remove('hidden'); }
+      else         badgeEl.classList.add('hidden');
+    }
+
+    function pipelineReset() {
+      pipeline.classList.remove('hidden');
+      [1,2,3].forEach(n => stageSet(n, 'idle', 'Waiting…', null));
+    }
+
+    /* ── Form submit ─────────────────────────────────────────────── */
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      resultArea.innerHTML = '';
+      pipelineReset();
+
+      if (!validate()) return;
+
+      const payload = {
+        text: descEl.value.trim(),
+        lat:  parseFloat(lat),
+        lon:  parseFloat(lon),
+      };
+      if (imageBase64) payload.image = imageBase64;
+
+      setLoading(true);
+
+      // Stage 1 — Content Filter (instant, simulated pre-flight)
+      stageSet(1, 'running', 'Checking content…', null);
+      await new Promise(r => setTimeout(r, 420));
+      stageSet(1, 'ok', 'Passed — no spam or gibberish detected', 'PASS');
+
+      // Stage 2 — Spatial Dedup (starts)
+      stageSet(2, 'running', 'Scanning nearby issues (100 m radius)…', null);
+
+      try {
+        const res = await fetch('/api/issues', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          if (data.status === 'merged') {
+            // Dedup fired — Stage 2 caught it, Stage 3 skipped
+            stageSet(2, 'merged',
+              `Duplicate detected — similarity ${(data.similarity_score * 100).toFixed(1)}%`,
+              'MERGED');
+            stageSet(3, 'idle', 'Skipped — duplicate handled by Dedup Agent', null);
+            await new Promise(r => setTimeout(r, 200));
+            renderMerged(data);
+          } else {
+            // New issue — Stage 2 passed, Stage 3 runs
+            stageSet(2, 'ok', 'No duplicates found — new distinct issue', 'NEW');
+            stageSet(3, 'running', 'CivicMind analysing cluster…', null);
+            await new Promise(r => setTimeout(r, 180));
+
+            if (data.ai_report) {
+              const dept = data.ai_report.department_routed;
+              const sev  = data.ai_report.severity_level;
+              stageSet(3, 'ok',
+                `Severity ${sev}/5 · Routed to ${dept}`,
+                'DONE');
+            } else {
+              stageSet(3, 'fail', 'AI analysis unavailable — issue still saved', 'WARN');
+            }
+            await new Promise(r => setTimeout(r, 150));
+            renderCreated(data);
+          }
+          resultArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+          stageSet(1, 'fail', data.detail ?? 'Rejected by content filter', 'REJECTED');
+          stageSet(2, 'idle', 'Skipped', null);
+          stageSet(3, 'idle', 'Skipped', null);
+          renderError(data.error ?? 'ERROR', data.detail ?? 'Unknown error.');
+        }
+      } catch (err) {
+        stageSet(1, 'fail', 'Network error', null);
+        renderError('NETWORK_ERROR', 'Could not reach the server. Check your connection and try again.');
+      } finally {
+        setLoading(false);
+      }
+    });
+
+  })();
+  </script>
+  <script>
+    /* ── Live Issues Feed ────────────────────────────────────────────── */
+    const feed = document.getElementById('issues-feed');
+    const refreshBtn = document.getElementById('refresh-btn');
+
+    const STATUS_COLORS = {
+      pending:     'text-yellow-400',
+      open:        'text-green-400',
+      in_progress: 'text-blue-400',
+      merged:      'text-slate-400',
+      resolved:    'text-emerald-400',
+      rejected:    'text-red-400',
+    };
+
+    const SEVERITY_LABELS = ['', 'Cosmetic', 'Minor', 'Moderate', 'Significant', 'Emergency'];
+    const SEVERITY_COLORS = ['', 'text-slate-400', 'text-yellow-300', 'text-orange-400', 'text-red-400', 'text-red-600'];
+
+    function escH(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    async function loadIssues() {
+      feed.innerHTML = '<p class="text-xs text-slate-600 font-mono">Loading…</p>';
+      try {
+        const res  = await fetch('/api/issues');
+        const data = await res.json();
+
+        if (!data.issues || data.issues.length === 0) {
+          feed.innerHTML = '<p class="text-xs text-slate-600 font-mono">No issues reported yet. Be the first!</p>';
+          return;
+        }
+
+        // Newest first
+        const sorted = [...data.issues].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        feed.innerHTML = sorted.map(issue => {
+          const shortId  = issue.id.slice(0, 8);
+          const statusCls = STATUS_COLORS[issue.status] ?? 'text-slate-400';
+          const ts = new Date(issue.timestamp).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
+          const cat = issue.category ? `<span class="mono-tag ml-1">${escH(issue.category.replace(/_/g,' '))}</span>` : '';
+          const upvotes = issue.upvote_count > 0
+            ? `<span class="text-amber-400 font-mono text-xs">▲ ${issue.upvote_count}</span>`
+            : '';
+
+          return `
+            <div class="result-card px-4 py-3 flex flex-col gap-1.5">
+              <div class="flex items-center justify-between gap-2">
+                <span class="mono-tag text-slate-500">#${escH(shortId)}</span>
+                <div class="flex items-center gap-2">
+                  ${upvotes}
+                  <span class="mono-tag ${statusCls}">${escH(issue.status)}</span>
+                </div>
+              </div>
+              <p class="text-sm text-slate-200 leading-snug line-clamp-2">${escH(issue.text_description)}</p>
+              <div class="flex items-center gap-2 flex-wrap">
+                ${cat}
+                <span class="text-xs text-slate-600 font-mono">${escH(ts)}</span>
+                <span class="text-xs text-slate-700 font-mono">${issue.lat.toFixed(4)}, ${issue.lon.toFixed(4)}</span>
+              </div>
+            </div>`;
+        }).join('');
+
+      } catch (err) {
+        feed.innerHTML = '<p class="text-xs text-red-400 font-mono">Failed to load issues.</p>';
+      }
+    }
+
+    // Reload feed after a successful submission
+    const origResultArea = document.getElementById('result-area');
+    const observer = new MutationObserver(() => {
+      if (origResultArea.querySelector('.result-card')) {
+        setTimeout(loadIssues, 600);
+      }
+    });
+    observer.observe(origResultArea, { childList: true });
+
+    refreshBtn.addEventListener('click', loadIssues);
+    loadIssues();
+  </script>
+</body>
+</html>
