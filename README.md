@@ -4,7 +4,7 @@
 
 CivicPulse lets citizens report local infrastructure problems (potholes, broken streetlights, water leaks) and uses a three-stage AI pipeline to **deduplicate**, **classify**, and **route** each report to the correct municipal department — automatically.
 
-🌐 **Live demo:** _[your Render URL here]_
+🌐 **Live demo:** https://civic-pulse-kegf.onrender.com/
 
 ---
 
@@ -34,7 +34,7 @@ Stage 2 ── SpatialDeduplication
           │  NEW     → proceeds to Stage 3
           ▼
 Stage 3 ── GeminiOrchestrator (CivicMind)
-             Gemini 2.0 Flash analyses the cluster and returns:
+             Gemini 3.6 Flash analyses the cluster and returns:
              • severity_level (1–5)
              • department_routed (8 municipal departments)
              • generated_title
@@ -70,7 +70,7 @@ civicpulse/
 | Layer | Choice | Why |
 |---|---|---|
 | Backend | Python 3.12, stdlib `http.server` | No framework overhead; full control |
-| AI | Gemini 2.0 Flash (`google-generativeai`) | Fast, structured JSON output, cost-efficient |
+| AI | Gemini 3.6 Flash (`google-generativeai`) | Fast, structured JSON output, cost-efficient |
 | Spatial | Custom Haversine + cosine similarity | No PostGIS needed for demo |
 | Frontend | Single HTML file + Tailwind CDN | Zero build step, instant deploy |
 | Deployment | Docker + Render | Free tier, persistent URL |
