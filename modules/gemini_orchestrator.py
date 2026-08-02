@@ -304,9 +304,8 @@ class GeminiClient(BaseLLMClient):
 
     Model choice
     ------------
-    gemini-2.5-flash        → balanced, has free tier quota  (default)
-    gemini-2.0-flash-lite   → fastest, lowest cost
-    gemini-2.5-pro          → highest reasoning quality (use for severity 4–5)
+    gemini-3.6-flash        → balanced, has free tier quota  (default)
+    gemini-3.5-flash-lite   → fastest, lowest cost
     """
 
     def __init__(
@@ -330,7 +329,8 @@ class GeminiClient(BaseLLMClient):
                 # Force JSON-only output at the API level (Gemini 1.5+)
                 response_mime_type="application/json",
                 temperature=0.1,   # Low temperature = deterministic, structured
-                max_output_tokens=512,
+                # INCREASED MAX TOKENS TO PREVENT UNTERMINATED JSON STRINGS
+                max_output_tokens=2048, 
             ),
         )
 
