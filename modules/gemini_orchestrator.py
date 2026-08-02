@@ -312,7 +312,7 @@ class GeminiClient(BaseLLMClient):
     def __init__(
         self,
         api_key: str,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-2.5-flash-preview-05-20",
     ) -> None:
         try:
             import google.generativeai as genai  # type: ignore
